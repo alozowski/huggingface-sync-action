@@ -40,20 +40,22 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: '${{ inputs.github_repo_id }}'
-        # Relative path under $GITHUB_WORKSPACE to place the repository
         path: cloned_github_repo
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
 
     - name: Push to hub
       shell: bash
       run: |
         cd cloned_hf_action_repo
         git pull origin main
-        pip install -r requirements.txt
+        uv pip install -r requirements.txt
         cd ..
         python cloned_hf_action_repo/sync_with_spaces.py \
-          --repo_id ${{ inputs.huggingface_repo_id }} \
+          --repo_id "${{ inputs.huggingface_repo_id }}" \
           --directory "cloned_github_repo/${{ inputs.subdirectory }}" \
-          --token ${{ inputs.hf_token }} \
-          --repo_type ${{ inputs.repo_type }} \
-          --space_sdk ${{ inputs.space_sdk }} \
-          --private ${{ inputs.private }}
+          --token "${{ inputs.hf_token }}" \
+          --repo_type "${{ inputs.repo_type }}" \
+          --space_sdk "${{ inputs.space_sdk }}" \
+          --private "${{ inputs.private }}"
