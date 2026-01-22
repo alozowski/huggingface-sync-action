@@ -1,7 +1,6 @@
-from huggingface_hub import create_repo, whoami
-from huggingface_hub.repository import Repository
+from huggingface_hub import create_repo, whoami, HfApi, CommitOperationAdd, CommitOperationDelete
 import os
-import shutil
+import fnmatch
 
 
 def _to_bool(value):
@@ -12,15 +11,42 @@ def _to_bool(value):
     return False
 
 
-def _clear_repo_except_git(path: str):
-    for name in os.listdir(path):
-        if name == ".git":
-            continue
-        full = os.path.join(path, name)
-        if os.path.isdir(full):
-            shutil.rmtree(full)
-        else:
-            os.remove(full)
+def _is_ignored(path_in_repo: str, ignore_patterns: list[str]) -> bool:
+    """Check if a path should be ignored based on patterns."""
+    base = os.path.basename(path_in_repo)
+    for pat in ignore_patterns:
+        if fnmatch.fnmatch(path_in_repo, pat) or fnmatch.fnmatch(base, pat):
+            return True
+    return False
+
+
+def _list_local_files(directory: str, ignore_patterns: list[str]) -> set[str]:
+    """List all non-ignored files in a directory."""
+    out: set[str] = set()
+    directory = os.path.abspath(directory)
+
+    for root, dirs, files in os.walk(directory):
+        rel_root = os.path.relpath(root, directory)
+        if rel_root == ".":
+            rel_root = ""
+
+        # Skip ignored directories early (e.g. ".github")
+        kept_dirs = []
+        for d in dirs:
+            rel_dir = os.path.join(rel_root, d) if rel_root else d
+            rel_dir_norm = rel_dir.replace(os.sep, "/")
+            if not _is_ignored(rel_dir_norm, ignore_patterns):
+                kept_dirs.append(d)
+        dirs[:] = kept_dirs
+
+        for f in files:
+            rel_file = os.path.join(rel_root, f) if rel_root else f
+            rel_file_norm = rel_file.replace(os.sep, "/")
+            if _is_ignored(rel_file_norm, ignore_patterns):
+                continue
+            out.add(rel_file_norm)
+
+    return out
 
 
 def main(
@@ -53,29 +79,45 @@ def main(
     )
     print(f"\t- Repo URL: {url}")
 
-    repo = Repository(
-        local_dir="hf_repo",
-        clone_from=repo_id,
-        repo_type=repo_type,
-        token=token,
-    )
+    ignore_patterns = ["*.git*", "*.github*", "*README.md*"]
 
-    _clear_repo_except_git("hf_repo")
+    api = HfApi(token=token)
 
-    shutil.copytree(
-        directory,
-        "hf_repo",
-        dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("*.git*", "*.github*", "*README.md*"),
-    )
+    # List local files (filtered)
+    local_files = _list_local_files(directory, ignore_patterns)
 
-    if repo.is_dirty():
-        repo.push_to_hub(
-            commit_message="Sync from GitHub via huggingface-sync-action"
+    # List remote files (all files)
+    remote_files_all = set(api.list_repo_files(repo_id=repo_id, repo_type=repo_type))
+    
+    # Filter remote files to exclude ignored patterns
+    remote_files = {p for p in remote_files_all if not _is_ignored(p, ignore_patterns)}
+
+    operations = []
+
+    # Deletions: anything remote (not ignored) that no longer exists locally
+    for path in sorted(remote_files - local_files):
+        operations.append(CommitOperationDelete(path_in_repo=path))
+
+    # Add/Update: upload every local file (server will handle "already same" efficiently)
+    for path in sorted(local_files):
+        operations.append(
+            CommitOperationAdd(
+                path_in_repo=path,
+                path_or_fileobj=os.path.join(directory, path),
+            )
         )
-        print("\t- Repo synced")
-    else:
+
+    if not operations:
         print("\t- No changes detected, skipping commit")
+        return
+
+    api.create_commit(
+        repo_id=repo_id,
+        repo_type=repo_type,
+        operations=operations,
+        commit_message="Sync from GitHub via huggingface-sync-action",
+    )
+    print("\t- Repo synced")
 
 
 if __name__ == "__main__":
