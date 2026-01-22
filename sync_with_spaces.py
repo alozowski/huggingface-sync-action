@@ -85,27 +85,39 @@ def main(
 
     # List local files (filtered)
     local_files = _list_local_files(directory, ignore_patterns)
+    print(f"\t- Local files found: {len(local_files)}")
 
     # List remote files (all files)
     remote_files_all = set(api.list_repo_files(repo_id=repo_id, repo_type=repo_type))
+    print(f"\t- Remote files (before filtering): {len(remote_files_all)}")
     
     # Filter remote files to exclude ignored patterns
     remote_files = {p for p in remote_files_all if not _is_ignored(p, ignore_patterns)}
+    print(f"\t- Remote files (after filtering): {len(remote_files)}")
 
     operations = []
 
     # Deletions: anything remote (not ignored) that no longer exists locally
-    for path in sorted(remote_files - local_files):
-        operations.append(CommitOperationDelete(path_in_repo=path))
+    files_to_delete = remote_files - local_files
+    if files_to_delete:
+        print(f"\t- Files to delete: {len(files_to_delete)}")
+        for path in sorted(files_to_delete):
+            print(f"\t  - DELETE: {path}")
+            operations.append(CommitOperationDelete(path_in_repo=path))
 
     # Add/Update: upload every local file (server will handle "already same" efficiently)
-    for path in sorted(local_files):
-        operations.append(
-            CommitOperationAdd(
-                path_in_repo=path,
-                path_or_fileobj=os.path.join(directory, path),
+    files_to_add = local_files
+    if files_to_add:
+        print(f"\t- Files to add/update: {len(files_to_add)}")
+        for path in sorted(files_to_add):
+            operations.append(
+                CommitOperationAdd(
+                    path_in_repo=path,
+                    path_or_fileobj=os.path.join(directory, path),
+                )
             )
-        )
+
+    print(f"\t- Total operations: {len(operations)}")
 
     if not operations:
         print("\t- No changes detected, skipping commit")
