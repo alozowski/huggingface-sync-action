@@ -151,17 +151,12 @@ runs:
         # Upload staged contents (true mirror)
         echo "::group::Uploading to Hugging Face"
         echo "Uploading ${FILE_COUNT} files..."
-        echo "DEBUG: About to run HF upload command"
-        set -x  # Enable command echoing for debugging
         uvx --from huggingface_hub hf upload \
           "${HF_REPO_ID}" \
           "${STAGING_DIR}" \
           --repo-type "${REPO_TYPE}" \
           --delete="*" \
           --quiet
-        UPLOAD_EXIT_CODE=$?
-        set +x  # Disable command echoing
-        echo "DEBUG: Upload exit code: ${UPLOAD_EXIT_CODE}"
         echo "::endgroup::"
         
         echo "Sync completed successfully"
