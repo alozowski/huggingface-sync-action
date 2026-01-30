@@ -29,17 +29,24 @@ uvx "${CREATE_ARGS[@]}"
 # Stage files into a clean directory before upload
 
 STAGING_DIR="$(mktemp -d)"
+trap 'rm -rf "${STAGING_DIR}"' EXIT
+
 echo "Staging files in ${STAGING_DIR}"
 
 rsync -a \
-  --delete \
   --exclude='.git/' \
   --exclude='.github/' \
   --exclude='.gitignore' \
   --exclude='.hfignore' \
   ./ "${STAGING_DIR}/"
 
-# Upload staged contents
+# Safety check: fail fast if staging leaked infra
+if [[ -d "${STAGING_DIR}/.github" ]]; then
+  echo "ERROR: .github directory leaked into staging area"
+  exit 1
+fi
+
+# Upload staged contents (true mirror)
 
 echo "Uploading staged contents to Hugging Face..."
 uvx hf upload \
