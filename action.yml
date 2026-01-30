@@ -126,8 +126,8 @@ runs:
         find "${STAGING_DIR}" -type f
         
         # Safety check: fail fast if .github files leaked into staging
-        GITHUB_FILE_COUNT=$(find "${STAGING_DIR}/.github" -type f 2>/dev/null | wc -l || echo 0)
-        if [[ ${GITHUB_FILE_COUNT} -gt 0 ]]; then
+        GITHUB_FILE_COUNT=$(find "${STAGING_DIR}/.github" -type f 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "${GITHUB_FILE_COUNT}" -gt 0 ]]; then
           echo "::error::.github files leaked into staging area (${GITHUB_FILE_COUNT} files)"
           find "${STAGING_DIR}/.github" -type f
           exit 1
