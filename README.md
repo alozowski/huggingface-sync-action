@@ -1,38 +1,68 @@
 # huggingface-sync-action
 
-A GitHub action that syncs files from a GitHub repository to the Hugging Face Hub 🤗  
+A GitHub Action that syncs your repository to Hugging Face Hub 🤗
 
-This fork fixes boolean input handling in GitHub composite actions and updates dependencies
-to supported versions of `huggingface_hub` and `fire`.
+Uses the official HF CLI via `uvx` for fast, reliable deployments to Spaces, Models, or Datasets.
+
+## Quick Start
+
+Add your HF token as a GitHub secret (`HF_TOKEN`), then:
+
+```yaml
+name: Sync to Hugging Face
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: alozowski/huggingface-sync-action@feature/use-hf-cli-via-uvx
+        with:
+          github_repo_id: ${{ github.repository }}
+          huggingface_repo_id: username/repo-name
+          hf_token: ${{ secrets.HF_TOKEN }}
+```
 
 ## Usage
 
-First, add a Hugging Face token with write access as a GitHub secret (e.g. `HF_TOKEN`).
-Then use the action in your workflow:
+### All Options
 
 ```yaml
-uses: alozowski/huggingface-sync-action@main
-with:
-  # The github repo you are syncing from (org/name). Required.
-  github_repo_id: ''
-
-  # The Hugging Face repo id you want to sync to (username/name). Required.
-  huggingface_repo_id: ''
-
-  # Hugging Face token with write access.
-  hf_token: ${{ secrets.HF_TOKEN }}
-
-  # The type of repo: model, dataset, or space.
-  # Defaults to space.
-  repo_type: 'space'
-
-  # Whether to create the repo as private (only applies if it does not exist).
-  private: false
-
-  # Space SDK if repo_type is space: gradio, streamlit, or static.
-  space_sdk: 'gradio'
-
-  # Optional subdirectory to sync.
-  # Defaults to syncing the entire repository.
-  subdirectory: ''
+- uses: alozowski/huggingface-sync-action@feature/use-hf-cli-via-uvx
+  with:
+    # Required
+    github_repo_id: ${{ github.repository }}
+    huggingface_repo_id: username/repo-name
+    hf_token: ${{ secrets.HF_TOKEN }}
+    
+    # Optional
+    repo_type: space              # space | model | dataset (default: space)
+    space_sdk: gradio             # gradio | streamlit | docker | static (default: gradio)
+    private: false                # Create as private (default: false)
+    subdirectory: ''              # Sync only this folder (default: '' = root)
 ```
+
+## Features
+
+**Automatic exclusions** - `.github/`, `.git/`, dotfiles  
+**Respects `.gitignore`** - only syncs tracked files  
+**True mirroring** - deletes removed files from HF  
+**Subdirectory support** - perfect for monorepos  
+**Safe** - built-in leak prevention checks  
+
+## What Gets Synced
+
+**✅ Synced:**
+- Git-tracked files (committed)
+- Regular files (not starting with `.`)
+- Files not in `.gitignore`
+
+**❌ Not synced:**
+- `.github/` directory
+- `.git/` directory  
+- Dotfiles (`.env`, `.vscode/`, etc.)
+- Ignored files (per `.gitignore`)
+- Untracked files
