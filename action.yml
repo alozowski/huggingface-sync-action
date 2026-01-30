@@ -1,5 +1,5 @@
 name: Sync With Hugging Face Hub
-description: An action to sync files on GitHub with a repo on the Hugging Face Hub (https://hf.co)
+description: Sync a GitHub repository to the Hugging Face Hub using the hf CLI
 author: alozowski
 branding:
   icon: upload-cloud
@@ -28,42 +28,46 @@ inputs:
     default: false
 
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: Prepare action sources
-      shell: bash
-      run: |
-        cp -r "$GITHUB_ACTION_PATH" cloned_hf_action_repo
-
-    - name: Checkout Source GitHub Repo to Push
-      uses: actions/checkout@v4
-      with:
-        repository: '${{ inputs.github_repo_id }}'
-        path: cloned_github_repo
-
     - name: Set up uv
       uses: astral-sh/setup-uv@v5
 
-    - name: Push to hub
+    - name: Create Hugging Face repo (idempotent)
       shell: bash
       run: |
-        cd cloned_hf_action_repo
+        set -euo pipefail
 
-        # Create virtual environment
-        uv venv .venv
+        CREATE_ARGS=(
+          hf repo create "${{ inputs.huggingface_repo_id }}"
+          --repo-type "${{ inputs.repo_type }}"
+          --token "${{ inputs.hf_token }}"
+          --exist-ok
+        )
 
-        # Install dependencies into venv
-        . .venv/bin/activate
-        uv pip install -r requirements.txt
+        if [[ "${{ inputs.private }}" == "true" ]]; then
+          CREATE_ARGS+=(--private)
+        fi
 
-        cd ..
+        if [[ "${{ inputs.repo_type }}" == "space" ]]; then
+          CREATE_ARGS+=(--space-sdk "${{ inputs.space_sdk }}")
+        fi
 
-        # Run script using venv Python
-        cloned_hf_action_repo/.venv/bin/python \
-          cloned_hf_action_repo/sync_with_spaces.py \
-          --repo_id "${{ inputs.huggingface_repo_id }}" \
-          --directory "cloned_github_repo/${{ inputs.subdirectory }}" \
+        uvx "${CREATE_ARGS[@]}"
+
+    - name: Upload files to Hugging Face (mirror)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        SRC_DIR="."
+        if [[ -n "${{ inputs.subdirectory }}" ]]; then
+          SRC_DIR="${{ inputs.subdirectory }}"
+        fi
+
+        uvx hf upload \
+          "${{ inputs.huggingface_repo_id }}" \
+          "${SRC_DIR}" \
+          --repo-type "${{ inputs.repo_type }}" \
           --token "${{ inputs.hf_token }}" \
-          --repo_type "${{ inputs.repo_type }}" \
-          --space_sdk "${{ inputs.space_sdk }}" \
-          --private "${{ inputs.private }}"
+          --delete="*"
