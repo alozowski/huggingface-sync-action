@@ -110,9 +110,9 @@ runs:
         fi
         
         # Copy only tracked git files to avoid GitHub Actions artifacts
-        # Exclude .git* and .github* patterns (workflows, git metadata, etc.)
+        # Filter out .git* and .github* patterns before copying
         echo "Copying tracked git files..."
-        git ls-files -z | rsync -a --exclude='.git*' --exclude='.github*' --files-from=- --from0 ./ "${STAGING_DIR}/"
+        git ls-files -z | grep -zv '^\.' | rsync -a --files-from=- --from0 ./ "${STAGING_DIR}/"
         
         # Return to original directory
         cd "${ORIGINAL_DIR}"
