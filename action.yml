@@ -120,9 +120,15 @@ runs:
         FILE_COUNT=$(find "${STAGING_DIR}" -type f | wc -l)
         echo "Staged ${FILE_COUNT} files"
         
-        # Safety check: fail fast if staging leaked infra
-        if [[ -d "${STAGING_DIR}/.github" ]]; then
-          echo "::error::.github directory leaked into staging area"
+        # List staged files for debugging
+        echo "Staged files:"
+        find "${STAGING_DIR}" -type f
+        
+        # Safety check: fail fast if .github files leaked into staging
+        GITHUB_FILE_COUNT=$(find "${STAGING_DIR}/.github" -type f 2>/dev/null | wc -l || echo 0)
+        if [[ ${GITHUB_FILE_COUNT} -gt 0 ]]; then
+          echo "::error::.github files leaked into staging area (${GITHUB_FILE_COUNT} files)"
+          find "${STAGING_DIR}/.github" -type f
           exit 1
         fi
         
