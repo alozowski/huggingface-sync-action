@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: alozowski/huggingface-sync-action@feature/use-hf-cli-via-uvx
+      - uses: alozowski/huggingface-sync-action@main
         with:
           github_repo_id: ${{ github.repository }}
           huggingface_repo_id: username/repo-name
@@ -46,23 +46,17 @@ jobs:
 ```
 
 ## Features
-
-**Automatic exclusions** - `.github/`, `.git/`, dotfiles  
-**Respects `.gitignore`** - only syncs tracked files  
-**True mirroring** - deletes removed files from HF  
-**Subdirectory support** - perfect for monorepos  
-**Safe** - built-in leak prevention checks  
+**Automatic exclusions** — `.github/` and `.git/` filtered via `--exclude`
+**True mirroring** — deletes removed files from HF using `--delete="*"`
+**Subdirectory support** — perfect for monorepos
+**Custom commit messages** — synced commits say "Sync from GitHub via huggingface-sync-action"
 
 ## What Gets Synced
 
 **✅ Synced:**
-- Git-tracked files (committed)
-- Regular files (not starting with `.`)
-- Files not in `.gitignore`
+- All files in the repo (or subdirectory)
+- Excluding `.git/` and `.github/`
 
 **❌ Not synced:**
 - `.github/` directory
-- `.git/` directory  
-- Dotfiles (`.env`, `.vscode/`, etc.)
-- Ignored files (per `.gitignore`)
-- Untracked files
+- `.git/` directory
