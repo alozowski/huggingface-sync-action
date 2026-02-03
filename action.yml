@@ -113,9 +113,18 @@ runs:
           --exclude=".git*" \
           --exclude=".github*" \
           --delete="*" \
-          --commit-message="Sync from GitHub via huggingface-sync-action" \
-          --quiet
+          --commit-message="Sync from GitHub via huggingface-sync-action"
         echo "::endgroup::"
         
+        # Build the correct HF URL based on repo type:
+        # model: https://huggingface.co/{owner}/{repo}
+        # dataset: https://huggingface.co/datasets/{owner}/{repo}
+        # space: https://huggingface.co/spaces/{owner}/{repo}
+        if [[ "${REPO_TYPE}" == "model" ]]; then
+          HF_URL="https://huggingface.co/${HF_REPO_ID}"
+        else
+          HF_URL="https://huggingface.co/${REPO_TYPE}s/${HF_REPO_ID}"
+        fi
+        
         echo "Sync completed successfully"
-        echo "View at: https://huggingface.co/${HF_REPO_ID}"
+        echo "View at: ${HF_URL}"
