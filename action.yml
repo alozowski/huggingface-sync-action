@@ -66,7 +66,7 @@ runs:
         
         # Build create command
         echo "::group::Creating or updating Hugging Face repo"
-        CREATE_CMD="uvx --from huggingface_hub hf repo create \"${HF_REPO_ID}\" --repo-type \"${REPO_TYPE}\" --exist-ok"
+        CREATE_CMD="uvx hf repo create \"${HF_REPO_ID}\" --repo-type \"${REPO_TYPE}\" --exist-ok"
         
         if [[ "${PRIVATE}" == "true" ]]; then
           CREATE_CMD="${CREATE_CMD} --private"
@@ -81,13 +81,6 @@ runs:
         eval "${CREATE_CMD}"
         echo "::endgroup::"
         
-        # Stage files into a clean directory before upload
-        STAGING_DIR="$(mktemp -d)"
-        trap 'rm -rf "${STAGING_DIR}"' EXIT
-        
-        echo "::group::Staging files"
-        echo "Staging directory: ${STAGING_DIR}"
-        
         # Determine source directory
         SRC_DIR="."
         if [[ -n "${SUBDIRECTORY}" ]]; then
@@ -99,62 +92,26 @@ runs:
           echo "Using subdirectory: ${SRC_DIR}"
         fi
         
-        # Save current directory and change to source
-        ORIGINAL_DIR="$(pwd)"
-        cd "${SRC_DIR}"
-        
-        # Check if we're in a git repository
-        if ! git rev-parse --git-dir > /dev/null 2>&1; then
-          echo "::error::Not in a git repository. This action requires the repository to be checked out with git."
-          exit 1
-        fi
-        
-        # Copy only tracked git files to avoid GitHub Actions artifacts
-        # Filter out .git* and .github* patterns before copying
-        echo "Copying tracked git files..."
-        git ls-files -z | grep -zv '^\.' | rsync -a --files-from=- --from0 ./ "${STAGING_DIR}/"
-        
-        # Return to original directory
-        cd "${ORIGINAL_DIR}"
-        
-        # Count files staged
-        FILE_COUNT=$(find "${STAGING_DIR}" -type f | wc -l)
-        echo "Staged ${FILE_COUNT} files"
-        
-        # List staged files for debugging
-        echo "Staged files:"
-        find "${STAGING_DIR}" -type f
-        
-        # Safety check: fail fast if .github files leaked into staging
-        if [[ -d "${STAGING_DIR}/.github" ]]; then
-          GITHUB_FILE_COUNT=$(find "${STAGING_DIR}/.github" -type f | wc -l | tr -d ' ')
-          if [[ "${GITHUB_FILE_COUNT}" -gt 0 ]]; then
-            echo "::error::.github files leaked into staging area (${GITHUB_FILE_COUNT} files)"
-            find "${STAGING_DIR}/.github" -type f
-            exit 1
-          fi
-        fi
-        
-        # Additional safety checks
-        if [[ -f "${STAGING_DIR}/.git" ]] || [[ -d "${STAGING_DIR}/.git" ]]; then
-          echo "::error::.git directory leaked into staging area"
-          exit 1
-        fi
+        # Count files to upload, excluding .git* and .github*
+        FILE_COUNT=$(find "${SRC_DIR}" -type f ! -path '*/.git/*' ! -path '*/.github/*' | wc -l | tr -d ' ')
         
         if [[ ${FILE_COUNT} -eq 0 ]]; then
-          echo "::error::No files to upload. Check that your repository has tracked files."
+          echo "::error::No files to upload. Check that your repository has files."
           exit 1
         fi
         
-        echo "::endgroup::"
-        
-        # Upload staged contents (true mirror)
+        # Upload contents directly (true mirror)
+        # hf upload works over HTTP, no local git repo or staging needed
+        # --delete="*" ensures remote files not present locally are removed
+        # --exclude filters .git* and .github* from being uploaded
         echo "::group::Uploading to Hugging Face"
         echo "Uploading ${FILE_COUNT} files..."
-        uvx --from huggingface_hub hf upload \
+        uvx hf upload \
           "${HF_REPO_ID}" \
-          "${STAGING_DIR}" \
+          "${SRC_DIR}" \
           --repo-type "${REPO_TYPE}" \
+          --exclude=".git*" \
+          --exclude=".github*" \
           --delete="*" \
           --quiet
         echo "::endgroup::"
