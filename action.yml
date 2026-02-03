@@ -1,5 +1,5 @@
 name: Sync With Hugging Face Hub
-description: An action to sync files on GitHub with a repo on the Hugging Face Hub (https://hf.co)
+description: Sync a GitHub repository to the Hugging Face Hub using the hf CLI
 author: alozowski
 branding:
   icon: upload-cloud
@@ -8,62 +8,123 @@ branding:
 inputs:
   github_repo_id:
     required: true
-    type: string
+    description: 'GitHub repository ID (owner/repo)'
   subdirectory:
-    type: string
+    required: false
+    description: 'Subdirectory to sync (optional, defaults to root)'
     default: ''
   huggingface_repo_id:
     required: true
-    type: string
+    description: 'Hugging Face repository ID (owner/repo)'
   hf_token:
     required: true
+    description: 'Hugging Face API token'
   repo_type:
-    type: string
+    required: false
+    description: 'Repository type (model, dataset, or space)'
     default: 'space'
   space_sdk:
-    type: string
+    required: false
+    description: 'Space SDK (gradio, streamlit, docker, or static) - only used when repo_type is space'
     default: 'gradio'
   private:
-    type: boolean
-    default: false
+    required: false
+    description: 'Whether the repository should be private'
+    default: 'false'
 
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: Prepare action sources
-      shell: bash
-      run: |
-        cp -r "$GITHUB_ACTION_PATH" cloned_hf_action_repo
-
-    - name: Checkout Source GitHub Repo to Push
-      uses: actions/checkout@v4
-      with:
-        repository: '${{ inputs.github_repo_id }}'
-        path: cloned_github_repo
-
     - name: Set up uv
       uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
 
-    - name: Push to hub
+    - name: Sync to Hugging Face
       shell: bash
+      env:
+        HF_REPO_ID: ${{ inputs.huggingface_repo_id }}
+        HF_TOKEN: ${{ inputs.hf_token }}
+        REPO_TYPE: ${{ inputs.repo_type }}
+        PRIVATE: ${{ inputs.private }}
+        SPACE_SDK: ${{ inputs.space_sdk }}
+        SUBDIRECTORY: ${{ inputs.subdirectory }}
       run: |
-        cd cloned_hf_action_repo
-
-        # Create virtual environment
-        uv venv .venv
-
-        # Install dependencies into venv
-        . .venv/bin/activate
-        uv pip install -r requirements.txt
-
-        cd ..
-
-        # Run script using venv Python
-        cloned_hf_action_repo/.venv/bin/python \
-          cloned_hf_action_repo/sync_with_spaces.py \
-          --repo_id "${{ inputs.huggingface_repo_id }}" \
-          --directory "cloned_github_repo/${{ inputs.subdirectory }}" \
-          --token "${{ inputs.hf_token }}" \
-          --repo_type "${{ inputs.repo_type }}" \
-          --space_sdk "${{ inputs.space_sdk }}" \
-          --private "${{ inputs.private }}"
+        set -euo pipefail
+        
+        echo "::group::Syncing GitHub repo to Hugging Face"
+        echo "Repo ID: ${HF_REPO_ID}"
+        echo "Repo type: ${REPO_TYPE}"
+        echo "Private: ${PRIVATE}"
+        if [[ "${REPO_TYPE}" == "space" ]]; then
+          echo "Space SDK: ${SPACE_SDK}"
+        fi
+        if [[ -n "${SUBDIRECTORY}" ]]; then
+          echo "Subdirectory: ${SUBDIRECTORY}"
+        fi
+        echo "::endgroup::"
+        
+        # Build create command
+        echo "::group::Creating or updating Hugging Face repo"
+        CREATE_CMD="uvx hf repo create \"${HF_REPO_ID}\" --repo-type \"${REPO_TYPE}\" --exist-ok"
+        
+        if [[ "${PRIVATE}" == "true" ]]; then
+          CREATE_CMD="${CREATE_CMD} --private"
+        fi
+        
+        if [[ "${REPO_TYPE}" == "space" ]]; then
+          CREATE_CMD="${CREATE_CMD} --space-sdk \"${SPACE_SDK}\""
+        fi
+        
+        # Note: We don't pass the token via command line to avoid it appearing in logs
+        # Instead, we'll use HF_TOKEN environment variable which huggingface_hub respects
+        eval "${CREATE_CMD}"
+        echo "::endgroup::"
+        
+        # Determine source directory
+        SRC_DIR="."
+        if [[ -n "${SUBDIRECTORY}" ]]; then
+          if [[ ! -d "${SUBDIRECTORY}" ]]; then
+            echo "::error::Subdirectory '${SUBDIRECTORY}' does not exist"
+            exit 1
+          fi
+          SRC_DIR="${SUBDIRECTORY}"
+          echo "Using subdirectory: ${SRC_DIR}"
+        fi
+        
+        # Count files to upload, excluding .git* and .github*
+        FILE_COUNT=$(find "${SRC_DIR}" -type f ! -path '*/.git/*' ! -path '*/.github/*' | wc -l | tr -d ' ')
+        
+        if [[ ${FILE_COUNT} -eq 0 ]]; then
+          echo "::error::No files to upload. Check that your repository has files."
+          exit 1
+        fi
+        
+        # Upload contents directly (true mirror)
+        # hf upload works over HTTP, no local git repo or staging needed
+        # --delete="*" ensures remote files not present locally are removed
+        # --exclude filters .git* and .github* from being uploaded
+        echo "::group::Uploading to Hugging Face"
+        echo "Uploading ${FILE_COUNT} files..."
+        uvx hf upload \
+          "${HF_REPO_ID}" \
+          "${SRC_DIR}" \
+          --repo-type "${REPO_TYPE}" \
+          --exclude=".git*" \
+          --exclude=".github*" \
+          --delete="*" \
+          --commit-message="Sync from GitHub via huggingface-sync-action"
+        echo "::endgroup::"
+        
+        # Build the correct HF URL based on repo type:
+        # model: https://huggingface.co/{owner}/{repo}
+        # dataset: https://huggingface.co/datasets/{owner}/{repo}
+        # space: https://huggingface.co/spaces/{owner}/{repo}
+        if [[ "${REPO_TYPE}" == "model" ]]; then
+          HF_URL="https://huggingface.co/${HF_REPO_ID}"
+        else
+          HF_URL="https://huggingface.co/${REPO_TYPE}s/${HF_REPO_ID}"
+        fi
+        
+        echo "Sync completed successfully"
+        echo "View at: ${HF_URL}"
